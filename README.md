@@ -75,30 +75,40 @@ curl -X POST https://your-app.vercel.app/api/images/generations \
 
 ## 免費 IP 代理池配置
 
-### 1. 填入免費代理
+### 1. 動態代理獲取（自動）
 
-編輯 `src/proxy-pool.js`，填入可用的免費代理：
+`src/proxy-pool.js` 會**自動從免費代理 API 抓取代理**，無需手動填入：
+
+- ProxyScrape（免費，無需 API key）
+- TheSpeedX PROXY-List（GitHub）
+- monosans proxy-list（GitHub）
+
+代理池每 10 分鐘自動重新抓取，確保代理新鮮可用。
+
+### 2. 靜態代理（選填）
+
+也可手動填入已知可用的代理：
 
 ```javascript
-export const FREE_PROXY_POOL = [
+const STATIC_PROXY_POOL = [
     { host: "1.2.3.4", port: 8080, protocol: "http" },
     { host: "5.6.7.8", port: 3128, protocol: "http" },
-    { host: "9.10.11.12", port: 8080, protocol: "http" },
 ];
 ```
 
-### 2. 代理輪詢機制
+### 3. 代理輪詢 + 重試機制
 
 每個生成請求會：
 1. 輪詢下一個代理 IP（`getNextProxy()`）
 2. 透過該代理取得獨立的訪客 token（`getStudioToken(proxy)`）
 3. 透過該代理轉發生成請求（`fetchViaProxy(..., proxy)`）
+4. **若 402（免費額度用完），自動重試下一個代理**（最多 3 次）
 
 這樣每個請求使用不同 IP，繞過單一 IP 的每日免費額度限制。
 
-### 3. 代理支援（Vercel 優勢）
+### 4. 代理支援（Vercel 優勢）
 
-Vercel 的 Node.js 環境**原生支援 HTTP 代理**（透過 `undici` 的 `ProxyAgent`），無需額外的代理中繼服務。這是相較於 Cloudflare Workers 的關鍵優勢。
+Vercel 的 Node.js 環境**原生支援 HTTP 代理**（透過 `undici` 的 `ProxyAgent`），無需額外的代理中繼服務。
 
 ### 免費代理來源
 
@@ -106,12 +116,12 @@ Vercel 的 Node.js 環境**原生支援 HTTP 代理**（透過 `undici` 的 `Pro
 - https://www.proxy-list.download/
 - https://github.com/TheSpeedX/PROXY-List
 - https://github.com/monosans/proxy-list
-- https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/http/data.txt
+- https://api.proxyscrape.com/v2/
 
 ### 重要限制
 
-⚠️ **免費代理存活時間短**（數分鐘到數小時），需定期更新代理池。
-⚠️ **免費代理品質不一**：建議只使用支援 HTTPS 的代理，並定期驗證可用性。
+⚠️ **免費代理存活時間短**（數分鐘到數小時），但動態抓取會自動更新。
+⚠️ **免費代理品質不一**：代理失敗時會自動回退到直連，並重試下一個代理。
 
 ## 專案結構
 

@@ -90,8 +90,8 @@ module.exports = async function handler(req, res) {
             );
         }
 
-        // 取得下一個代理（輪詢）
-        const proxy = getNextProxy();
+        // 取得下一個代理（輪詢，async）
+        const proxy = await getNextProxy();
 
         const result = await generateImage({
             model,

@@ -14,7 +14,7 @@
  *   認證方式：訪客使用 x-studio-token header
  */
 
-const { FREE_PROXY_POOL } = require("./proxy-pool.js");
+const { getProxyPool } = require("./proxy-pool.js");
 const { ProxyAgent, fetch: undiciFetch } = require("undici");
 
 // ============================================================
@@ -37,11 +37,21 @@ const GUEST_IMAGE_MODELS = [
 // IP 輪詢：取得下一個代理
 // ============================================================
 let memoryIndex = 0;
+let proxyPoolCache = [];
+let proxyPoolFetchedAt = 0;
+const PROXY_POOL_TTL_MS = 10 * 60 * 1000; // 10 分鐘
 
-function getNextProxy() {
-    if (FREE_PROXY_POOL.length === 0) return null;
-    const proxy = FREE_PROXY_POOL[memoryIndex % FREE_PROXY_POOL.length];
-    memoryIndex = (memoryIndex + 1) % FREE_PROXY_POOL.length;
+async function getNextProxy() {
+    // 定期重新抓取代理池
+    const now = Date.now();
+    if (proxyPoolCache.length === 0 || now - proxyPoolFetchedAt > PROXY_POOL_TTL_MS) {
+        proxyPoolCache = await getProxyPool();
+        proxyPoolFetchedAt = now;
+    }
+
+    if (proxyPoolCache.length === 0) return null;
+    const proxy = proxyPoolCache[memoryIndex % proxyPoolCache.length];
+    memoryIndex = (memoryIndex + 1) % proxyPoolCache.length;
     return proxy;
 }
 
@@ -58,6 +68,7 @@ function getProxyAgent(proxy) {
     if (!agentCache.has(key)) {
         const agent = new ProxyAgent({
             uri: `${proxy.protocol || "http"}://${proxy.host}:${proxy.port}`,
+            requestTls: { rejectUnauthorized: false },
         });
         agentCache.set(key, agent);
     }
@@ -67,7 +78,12 @@ function getProxyAgent(proxy) {
 async function fetchViaProxy(url, options, proxy) {
     const agent = getProxyAgent(proxy);
     if (agent) {
-        return undiciFetch(url, { ...options, dispatcher: agent });
+        try {
+            return await undiciFetch(url, { ...options, dispatcher: agent });
+        } catch (e) {
+            // 代理失敗，回退到直連
+            return fetch(url, options);
+        }
     }
     return fetch(url, options);
 }
@@ -94,7 +110,7 @@ async function getStudioToken(proxy = null) {
 }
 
 // ============================================================
-// 圖片生成核心函式
+// 圖片生成核心函式（含代理重試）
 // ============================================================
 async function generateImage({
     model,
@@ -104,6 +120,7 @@ async function generateImage({
     quality,
     resolution,
     proxy = null,
+    maxRetries = 3,
 }) {
     const body = {
         model,
@@ -115,50 +132,74 @@ async function generateImage({
     if (quality) body.quality = quality;
     if (resolution) body.resolution = resolution;
 
-    const headers = {
-        "Content-Type": "application/json",
-        "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-        Accept: "application/json",
-    };
+    // 嘗試多個代理（輪詢 + 重試）
+    let lastError = null;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        // 每次重試輪詢下一個代理
+        const currentProxy = proxy || (await getNextProxy());
 
-    // 訪客模式（免費額度）：透過代理取得獨立 token
-    const token = await getStudioToken(proxy);
-    if (token) {
-        headers["x-studio-token"] = token;
+        const headers = {
+            "Content-Type": "application/json",
+            "User-Agent":
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+            Accept: "application/json",
+        };
+
+        // 訪客模式（免費額度）：透過代理取得獨立 token
+        const token = await getStudioToken(currentProxy);
+        if (token) {
+            headers["x-studio-token"] = token;
+        }
+
+        const fetchOptions = {
+            method: "POST",
+            headers,
+            body: JSON.stringify(body),
+        };
+
+        // 透過代理轉發生成請求
+        const resp = await fetchViaProxy(IMAGE_GEN_URL, fetchOptions, currentProxy);
+
+        // 402 = 免費額度用完，嘗試下一個代理
+        if (resp.status === 402) {
+            lastError = {
+                ok: false,
+                status: 402,
+                error: "payment_required",
+                message: "此代理的免費額度已用完，嘗試下一個代理...",
+            };
+            continue; // 重試下一個代理
+        }
+
+        if (!resp.ok) {
+            const errText = await resp.text().catch(() => "");
+            lastError = {
+                ok: false,
+                status: resp.status,
+                error: "generation_failed",
+                message: errText || `生成失敗（${resp.status}）`,
+            };
+            continue; // 重試下一個代理
+        }
+
+        const data = await resp.json();
+        return { ok: true, status: 200, data, proxy: currentProxy };
     }
 
-    const fetchOptions = {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-    };
-
-    // 透過代理轉發生成請求
-    const resp = await fetchViaProxy(IMAGE_GEN_URL, fetchOptions, proxy);
-
-    // 402 = 需要支付（訪客免費額度用完）
-    if (resp.status === 402) {
+    // 所有代理都失敗
+    if (lastError) {
         return {
-            ok: false,
-            status: 402,
-            error: "payment_required",
-            message: "免費額度已用完，請稍後再試（每天重置）",
+            ...lastError,
+            message: "所有代理的免費額度都已用完，請稍後再試（每天重置）",
         };
     }
 
-    if (!resp.ok) {
-        const errText = await resp.text().catch(() => "");
-        return {
-            ok: false,
-            status: resp.status,
-            error: "generation_failed",
-            message: errText || `生成失敗（${resp.status}）`,
-        };
-    }
-
-    const data = await resp.json();
-    return { ok: true, status: 200, data };
+    return {
+        ok: false,
+        status: 500,
+        error: "no_proxy_available",
+        message: "無可用代理，請在 proxy-pool.js 填入免費代理",
+    };
 }
 
 // ============================================================

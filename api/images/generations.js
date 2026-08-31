@@ -7,7 +7,7 @@
  * GET  /api/health
  */
 
-import { generateImage, getSessionConfig, getNextProxy, GUEST_IMAGE_MODELS } from "../src/clawhunter.js";
+import { generateImage, getSessionConfig, getNextProxy, GUEST_IMAGE_MODELS } from "../../src/clawhunter.js";
 
 // CORS 處理
 function corsHeaders(origin) {

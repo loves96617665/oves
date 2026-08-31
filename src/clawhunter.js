@@ -15,6 +15,7 @@
  */
 
 import { FREE_PROXY_POOL } from "./proxy-pool.js";
+import { ProxyAgent, fetch as undiciFetch } from "undici";
 
 // ============================================================
 // 配置
@@ -47,7 +48,6 @@ export function getNextProxy() {
 // ============================================================
 // 代理轉發：使用 undici ProxyAgent 真正支援 HTTP 代理
 // ============================================================
-import { ProxyAgent, fetch as undiciFetch } from "undici";
 
 // 代理 Agent 快取（避免每次請求都建立新 Agent）
 const agentCache = new Map();

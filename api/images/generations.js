@@ -7,7 +7,7 @@
  * GET  /api/health
  */
 
-import { generateImage, getSessionConfig, getNextProxy, GUEST_IMAGE_MODELS } from "../../src/clawhunter.js";
+const { generateImage, getSessionConfig, getNextProxy, GUEST_IMAGE_MODELS } = require("../../src/clawhunter.js");
 
 // CORS 處理
 function corsHeaders(origin) {
@@ -19,38 +19,34 @@ function corsHeaders(origin) {
     };
 }
 
-function jsonResponse(data, status = 200, origin) {
-    return new Response(JSON.stringify(data), {
-        status,
-        headers: {
-            "Content-Type": "application/json",
-            ...corsHeaders(origin),
-        },
-    });
+function sendJson(res, data, status = 200, origin) {
+    res.setHeader("Content-Type", "application/json");
+    Object.entries(corsHeaders(origin)).forEach(([k, v]) => res.setHeader(k, v));
+    res.status(status).json(data);
 }
 
-export default async function handler(req) {
-    const url = new URL(req.url);
-    const origin = req.headers.get("origin");
-    const path = url.pathname;
+module.exports = async function handler(req, res) {
+    const origin = req.headers.origin;
+    const path = req.url.split("?")[0];
 
     // CORS 預檢
     if (req.method === "OPTIONS") {
-        return new Response(null, { status: 204, headers: corsHeaders(origin) });
+        Object.entries(corsHeaders(origin)).forEach(([k, v]) => res.setHeader(k, v));
+        return res.status(204).end();
     }
 
     // 健康檢查
     if (path === "/api/health") {
-        return jsonResponse({ status: "ok", service: "clawhunter-image-gen" }, 200, origin);
+        return sendJson(res, { status: "ok", service: "clawhunter-image-gen" }, 200, origin);
     }
 
     // 訪客 session 配置
     if (path === "/api/session") {
         const config = await getSessionConfig();
         if (!config) {
-            return jsonResponse({ error: "failed_to_fetch_session" }, 502, origin);
+            return sendJson(res, { error: "failed_to_fetch_session" }, 502, origin);
         }
-        return jsonResponse(config, 200, origin);
+        return sendJson(res, config, 200, origin);
     }
 
     // 模型清單
@@ -61,31 +57,32 @@ export default async function handler(req) {
             owned_by: "clawhunter",
             free: true,
         }));
-        return jsonResponse({ object: "list", data: models }, 200, origin);
+        return sendJson(res, { object: "list", data: models }, 200, origin);
     }
 
     // 圖片生成 API（OpenAI 相容）
     if (path === "/api/images/generations") {
         if (req.method !== "POST") {
-            return jsonResponse({ error: "method_not_allowed" }, 405, origin);
+            return sendJson(res, { error: "method_not_allowed" }, 405, origin);
         }
 
         let body;
         try {
-            body = await req.json();
+            body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
         } catch {
-            return jsonResponse({ error: "invalid_json" }, 400, origin);
+            return sendJson(res, { error: "invalid_json" }, 400, origin);
         }
 
         const model = body.model || "gpt-image-2";
         const prompt = body.prompt;
         if (!prompt) {
-            return jsonResponse({ error: "prompt_required" }, 400, origin);
+            return sendJson(res, { error: "prompt_required" }, 400, origin);
         }
 
         // 驗證模型
         if (!GUEST_IMAGE_MODELS.includes(model)) {
-            return jsonResponse(
+            return sendJson(
+                res,
                 { error: "invalid_model", valid_models: GUEST_IMAGE_MODELS },
                 400,
                 origin
@@ -106,16 +103,17 @@ export default async function handler(req) {
         });
 
         if (!result.ok) {
-            return jsonResponse(
+            return sendJson(
+                res,
                 { error: result.error, message: result.message },
                 result.status,
                 origin
             );
         }
 
-        return jsonResponse(result.data, 200, origin);
+        return sendJson(res, result.data, 200, origin);
     }
 
     // 404
-    return jsonResponse({ error: "not_found" }, 404, origin);
-}
+    return sendJson(res, { error: "not_found" }, 404, origin);
+};

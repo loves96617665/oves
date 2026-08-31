@@ -3,7 +3,6 @@
     "version": "1.0.0",
     "description": "Claw Hunter 圖片生成站（訪客免費額度 + 免費 IP 代理池 + IP 輪詢 + OpenAI 相容 API）",
     "private": true,
-    "type": "module",
     "scripts": {
         "dev": "vercel dev",
         "deploy": "vercel --prod"

@@ -18,11 +18,11 @@
  *    （每個 IP 每天 2 次免費圖片，輪詢不同 IP 可突破限制）
  */
 
-export const FREE_PROXY_POOL = [
+const FREE_PROXY_POOL = [
     // 範例（請替換為實際可用代理）：
     // { host: "1.2.3.4", port: 8080, protocol: "http" },
     // { host: "5.6.7.8", port: 3128, protocol: "http" },
     // { host: "9.10.11.12", port: 8080, protocol: "http" },
 ];
 
-export default FREE_PROXY_POOL;
+module.exports = { FREE_PROXY_POOL };

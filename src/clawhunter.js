@@ -14,8 +14,8 @@
  *   認證方式：訪客使用 x-studio-token header
  */
 
-import { FREE_PROXY_POOL } from "./proxy-pool.js";
-import { ProxyAgent, fetch as undiciFetch } from "undici";
+const { FREE_PROXY_POOL } = require("./proxy-pool.js");
+const { ProxyAgent, fetch: undiciFetch } = require("undici");
 
 // ============================================================
 // 配置
@@ -26,7 +26,7 @@ const STUDIO_TOKEN_URL = `${CLAW_BASE}/api/v1/studio/token`;
 const SESSION_URL = `${CLAW_BASE}/api/studio/session`;
 
 // 訪客免費圖片模型（從 /api/studio/session 逆向取得）
-export const GUEST_IMAGE_MODELS = [
+const GUEST_IMAGE_MODELS = [
     "gpt-image-2",
     "z-image-turbo",
     "nano-banana-2",
@@ -38,7 +38,7 @@ export const GUEST_IMAGE_MODELS = [
 // ============================================================
 let memoryIndex = 0;
 
-export function getNextProxy() {
+function getNextProxy() {
     if (FREE_PROXY_POOL.length === 0) return null;
     const proxy = FREE_PROXY_POOL[memoryIndex % FREE_PROXY_POOL.length];
     memoryIndex = (memoryIndex + 1) % FREE_PROXY_POOL.length;
@@ -96,7 +96,7 @@ async function getStudioToken(proxy = null) {
 // ============================================================
 // 圖片生成核心函式
 // ============================================================
-export async function generateImage({
+async function generateImage({
     model,
     prompt,
     n = 1,
@@ -164,7 +164,7 @@ export async function generateImage({
 // ============================================================
 // 取得訪客 session 配置
 // ============================================================
-export async function getSessionConfig() {
+async function getSessionConfig() {
     const resp = await fetch(SESSION_URL, {
         headers: {
             "User-Agent":
@@ -174,3 +174,10 @@ export async function getSessionConfig() {
     if (!resp.ok) return null;
     return resp.json();
 }
+
+module.exports = {
+    GUEST_IMAGE_MODELS,
+    getNextProxy,
+    generateImage,
+    getSessionConfig,
+};

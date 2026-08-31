@@ -1,13 +1,28 @@
 {
     "version": 2,
-    "builds": [
+    "functions": {
+        "api/**/*.js": {
+            "maxDuration": 120,
+            "memory": 1024
+        }
+    },
+    "headers": [
         {
-            "src": "api/**/*.js",
-            "use": "@vercel/node"
-        },
-        {
-            "src": "index.html",
-            "use": "@vercel/static"
+            "source": "/api/(.*)",
+            "headers": [
+                {
+                    "key": "Access-Control-Allow-Origin",
+                    "value": "*"
+                },
+                {
+                    "key": "Access-Control-Allow-Methods",
+                    "value": "GET, POST, OPTIONS"
+                },
+                {
+                    "key": "Access-Control-Allow-Headers",
+                    "value": "Content-Type, Authorization, x-studio-token"
+                }
+            ]
         }
     ]
 }

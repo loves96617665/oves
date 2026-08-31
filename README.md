@@ -26,6 +26,7 @@
 ### 1. 安裝依賴
 
 ```bash
+cd video-gen-site
 npm install
 ```
 
@@ -38,10 +39,15 @@ npm run dev
 ### 3. 部署到 Vercel
 
 ```bash
-npm run deploy
-# 或
+# 在 video-gen-site 目錄內執行
 vercel --prod
 ```
+
+**重要**：Vercel 專案的 **Root Directory 必須指向 `video-gen-site` 目錄**，否則 `api/` 目錄不會被正確識別為 Serverless Function。
+
+若使用 Vercel 網頁介面部署：
+1. Import 專案時，Root Directory 設為 `video-gen-site`
+2. 或直接將 `video-gen-site` 目錄作為獨立 Git 倉庫
 
 ## API 使用
 

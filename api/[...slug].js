@@ -27,6 +27,19 @@ function sendJson(res, data, status = 200, origin) {
 }
 
 module.exports = async function handler(req, res) {
+    try {
+        return await handleRequest(req, res);
+    } catch (e) {
+        // 全域錯誤處理：回傳 JSON 而非 HTML 錯誤頁面
+        const origin = req.headers.origin;
+        return sendJson(res, {
+            error: "internal_error",
+            message: e.message || "伺服器錯誤",
+        }, 500, origin);
+    }
+};
+
+async function handleRequest(req, res) {
     const origin = req.headers.origin;
     const path = req.url.split("?")[0];
 
@@ -117,4 +130,4 @@ module.exports = async function handler(req, res) {
 
     // 404
     return sendJson(res, { error: "not_found" }, 404, origin);
-};
+}

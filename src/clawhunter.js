@@ -15,7 +15,6 @@
  */
 
 const { getProxyPool } = require("./proxy-pool.js");
-const { ProxyAgent, fetch: undiciFetch } = require("undici");
 
 // ============================================================
 // 配置
@@ -45,8 +44,12 @@ async function getNextProxy() {
     // 定期重新抓取代理池
     const now = Date.now();
     if (proxyPoolCache.length === 0 || now - proxyPoolFetchedAt > PROXY_POOL_TTL_MS) {
-        proxyPoolCache = await getProxyPool();
-        proxyPoolFetchedAt = now;
+        try {
+            proxyPoolCache = await getProxyPool();
+            proxyPoolFetchedAt = now;
+        } catch {
+            proxyPoolCache = [];
+        }
     }
 
     if (proxyPoolCache.length === 0) return null;
@@ -56,36 +59,37 @@ async function getNextProxy() {
 }
 
 // ============================================================
-// 代理轉發：使用 undici ProxyAgent 真正支援 HTTP 代理
+// 代理轉發：使用 https-proxy-agent 支援 HTTP 代理
 // ============================================================
-
-// 代理 Agent 快取（避免每次請求都建立新 Agent）
-const agentCache = new Map();
-
-function getProxyAgent(proxy) {
-    if (!proxy) return null;
-    const key = `${proxy.host}:${proxy.port}`;
-    if (!agentCache.has(key)) {
-        const agent = new ProxyAgent({
-            uri: `${proxy.protocol || "http"}://${proxy.host}:${proxy.port}`,
-            requestTls: { rejectUnauthorized: false },
-        });
-        agentCache.set(key, agent);
-    }
-    return agentCache.get(key);
+let HttpsProxyAgent = null;
+try {
+    // 嘗試載入 https-proxy-agent（若已安裝）
+    const mod = require("https-proxy-agent");
+    HttpsProxyAgent = mod.HttpsProxyAgent || mod;
+} catch {
+    // 未安裝，使用直連
+    HttpsProxyAgent = null;
 }
 
 async function fetchViaProxy(url, options, proxy) {
-    const agent = getProxyAgent(proxy);
-    if (agent) {
-        try {
-            return await undiciFetch(url, { ...options, dispatcher: agent });
-        } catch (e) {
-            // 代理失敗，回退到直連
-            return fetch(url, options);
-        }
+    // 若無代理或未安裝 https-proxy-agent，直接請求
+    if (!proxy || !HttpsProxyAgent) {
+        return fetch(url, options);
     }
-    return fetch(url, options);
+
+    try {
+        const agent = new HttpsProxyAgent(
+            `${proxy.protocol || "http"}://${proxy.host}:${proxy.port}`
+        );
+        // Node.js 18+ 的 fetch 不支援 agent 參數，
+        // 需使用 undici 或 http/https 模組
+        // 這裡使用 undici（Node.js 內建）
+        const { fetch: undiciFetch } = require("undici");
+        return await undiciFetch(url, { ...options, dispatcher: agent });
+    } catch (e) {
+        // 代理失敗，回退到直連
+        return fetch(url, options);
+    }
 }
 
 // ============================================================
